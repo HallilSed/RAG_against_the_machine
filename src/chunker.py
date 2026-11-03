@@ -45,12 +45,10 @@ class Chunker:
                 max_end = start_idx + self.max_size
                 end_idx = max_end
             
-            found_sep = False
             for sep in ["\n\n", "\n", " "]:
                 sep_pos = text.rfind(sep, start_idx, max_end)
                 if sep_pos != -1 and sep_pos > start_idx:
                     end_idx = sep_pos + len(sep)
-                    found_sep = True
                     break
             
             chunk_text = text[start_idx:end_idx]
