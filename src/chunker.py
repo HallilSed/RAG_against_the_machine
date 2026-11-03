@@ -53,6 +53,7 @@ class Chunker:
             
             chunk_text = text[start_idx:end_idx]
             
+            
             chunks.append(
                 ChunkResult(
                     file_path=file_path,

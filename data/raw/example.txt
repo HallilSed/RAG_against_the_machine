@@ -12,3 +12,4 @@ RecursiveCharacterTextSplitter: This is often recommended as a starting point. I
 HTMLHeaderTextSplitter and MarkdownHeaderTextSplitter: These split text based on HTML or markdown-specific characters, and include information about where each chunk came from.
 SemanticChunker: This first splits on sentences, then combines ones next to each other if they’re semantically similar enough.
 One thing to consider is to keep some overlap text between chunks. This can help ensure that semantic context doesn’t get lost between chunks. There are many more text splitters out there, and I’d recommend exploring them to find what works best for your use-case. If you’re feeling overwhelmed, the RecursiveCharacterTextSplitter is often a good place to start.
+
