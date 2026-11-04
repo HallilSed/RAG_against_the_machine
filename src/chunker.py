@@ -18,9 +18,13 @@ class Chunker:
     def chunk_document(self, text: str, file_path: str)-> list[ChunkResult]:
         
         chunks: list[ChunkResult] = []
+        
+        prim_sep = "\n\n"
+        paragraphs = text.split(prim_sep)
 
-        total_len = len(text)
-        start_idx = 0
+        current_block = ""
+        current_start_idx = 0
+        offset = 0
 
         # for i in range(0, total_len, self.max_size):
         #     start_idx = i
@@ -37,33 +41,43 @@ class Chunker:
         #         )
         #     )
         
-        while start_idx < total_len:
+        for i, para, in enumerate(paragraphs):
+            has_sep = i < len(paragraphs) - 1
+            sep_str = prim_sep if has_sep else ""
+            para_with_sep = para + sep_str
             
-            if total_len - start_idx <= self.max_size:
-                end_idx = total_len
+            if (
+                current_block and len(current_block) + len(para_with_sep) > self.max_size
+            ):
+                chunks.append(
+                    ChunkResult(
+                        file_path=file_path,
+                        first_char_idx=current_start_idx,
+                        last_char_idx=current_start_idx + len(current_block),
+                        content=current_block,
+                    )
+                )
+                
+                current_block = para_with_sep
+                current_start_idx = offset
             else:
-                max_end = start_idx + self.max_size
-                end_idx = max_end
+                
+                if not current_block:
+                    current_start_idx = offset
+                current_block += para_with_sep
             
-            for sep in ["\n\n", "\n", " "]:
-                sep_pos = text.rfind(sep, start_idx, max_end)
-                if sep_pos != -1 and sep_pos > start_idx:
-                    end_idx = sep_pos + len(sep)
-                    break
-            
-            chunk_text = text[start_idx:end_idx]
-            
-            
+            offset += len(para_with_sep)
+        
+        if current_block:
             chunks.append(
                 ChunkResult(
                     file_path=file_path,
-                    first_char_idx=start_idx,
-                    last_char_idx=end_idx,
-                    content=chunk_text,
+                    first_char_idx=current_start_idx,
+                    last_char_idx=current_start_idx + len(current_block),
+                    content=current_block,
                 )
             )
-            
-            start_idx = end_idx
+        
 
         return chunks
 
@@ -77,17 +91,17 @@ class Chunker:
 
         text = path.read_text(encoding="utf-8")
         return self.chunk_document(text=text, file_path=str(path))
-        
+
     
 
 
 if __name__ == "__main__":
     
-    file_target = "../data/raw/example.txt"
+    file_target = "data/raw/example.txt"
     
-    chunker = Chunker(max_chunk_size=200)
+    chunker = Chunker(max_chunk_size=2000)
     try:
-        
+
         result = chunker.process_file(file_target)
         print(f"Total chunks: {len(result)}\n\n")
         
@@ -97,7 +111,7 @@ if __name__ == "__main__":
             
             print(f"[{item.first_char_idx}:{item.last_char_idx}]")
             
-            print(f"Text : {repr(item.content)}")
+            print(f"Text : {item.content}")
             print("-" * 40)
         
     except Exception as e:
