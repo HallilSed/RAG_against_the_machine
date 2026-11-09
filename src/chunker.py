@@ -10,59 +10,83 @@ class ChunkeResult(BaseModel):
 
 
 class Chunker:
-    
-    def __init__(self, separator: list[str] | None=None, max_chunk_size: int=2000) -> None:
-        
-        self.sep = separator
+    def __init__(self, separator: list[str] | None = None, max_chunk_size: int = 2000) -> None:
+        self.sep = separator or ["\n\n", "\n", " ", ""]
         self.max_chunk_size = max_chunk_size
     
-    
     def chunk_document(self, content: str, file_path: str) -> list[ChunkeResult]:
-        
         chunks: list[ChunkeResult] = []
-        
-        prim_sep = "\n\n"
-        
-        paragraphs = content.split(prim_sep)
-        current_block = ""
-        current_start_idx = 0
-        offset = 0
-        
-        for i, para in enumerate(paragraphs):
-            has_sep = i < len(paragraphs) - 1
-            sep_str = prim_sep if has_sep else ""
-            para_with_sep = para + sep_str
+        self._split_text(content, 0, file_path, self.sep, chunks)
+        return chunks
+
+    def _split_text(self, text: str, start_offset: int, file_path: str, separators: list[str], chunks: list[ChunkeResult]) -> None:
+        if not text:
+            return
+
+        if len(text) <= self.max_chunk_size or not separators:
+            if len(text) > self.max_chunk_size:
+                for i in range(0, len(text), self.max_chunk_size):
+                    part = text[i : i + self.max_chunk_size]
+                    if part.strip():
+                        chunks.append(
+                            ChunkeResult(
+                                file_path=file_path,
+                                first_char_idx=start_offset + i,
+                                last_char_idx=start_offset + i + len(part),
+                                content=part
+                            )
+                        )
+                return
+
+            l_trim = len(text) - len(text.lstrip())
+            r_trim = len(text) - len(text.rstrip())
+            trimmed = text.strip()
             
-            if (
-                current_block and len(current_block) + len(para_with_sep) > self.max_chunk_size
-            ):
+            if trimmed:
                 chunks.append(
                     ChunkeResult(
                         file_path=file_path,
-                        first_char_idx=current_start_idx,
-                        last_char_idx=current_start_idx + len(current_block)
+                        first_char_idx=start_offset + l_trim,
+                        last_char_idx=start_offset + len(text) - r_trim,
+                        content=trimmed
                     )
                 )
-                current_block = para_with_sep
-                current_start_idx = offset
+            return
+
+        sep = separators[0]
+        next_seps = separators[1:]
+        splits = text.split(sep)
+        
+        current_block = ""
+        block_start = start_offset
+        offset = start_offset
+
+        for i, part in enumerate(splits):
+            has_sep = i < len(splits) - 1
+            segment = part + (sep if has_sep else "")
+
+            if len(segment) > self.max_chunk_size:
+                if current_block:
+                    self._split_text(current_block, block_start, file_path, next_seps, chunks)
+                    current_block = ""
+                self._split_text(segment, offset, file_path, next_seps, chunks)
+                offset += len(segment)
+                block_start = offset
+                continue
+
+            if current_block and len(current_block) + len(segment) > self.max_chunk_size:
+                self._split_text(current_block, block_start, file_path, next_seps, chunks)
+                current_block = segment
+                block_start = offset
             else:
                 if not current_block:
-                    current_start_idx = offset
-                current_block += para_with_sep
-            
-            offset += len(para_with_sep)
-        
-        if not current_block:
-            chunks.append(
-                ChunkeResult(
-                    file_path=file_path,
-                    first_char_idx=current_start_idx,
-                    last_char_idx=current_start_idx + len(current_block),
-                    content=current_block,
-                )
-            )
-        
-        return chunks
+                    block_start = offset
+                current_block += segment
+
+            offset += len(segment)
+
+        if current_block:
+            self._split_text(current_block, block_start, file_path, next_seps, chunks)
             
 
 class ChunkerPY(Chunker):
@@ -79,9 +103,13 @@ class ChunkerPY(Chunker):
         if not path.exists():
             raise FileNotFoundError(f"File not found: {files_path}")
         
+        all_chunks = []
         for i in path.rglob("*.py"):
-            content = i.read_text(encoding="utf-8")
-        return self.chunk_document(content=content, files_path=str(files_path))
+            file_content = i.read_text(encoding="utf-8")
+            file_chunks = self.chunk_document(content=file_content, file_path=str(i))
+            all_chunks.extend(file_chunks)
+
+        return all_chunks
 
 class ChunkerMd(Chunker):
     
@@ -97,6 +125,10 @@ class ChunkerMd(Chunker):
         if not path.exists():
             raise FileNotFoundError(f"File not fount: {files_path}")
         
+        all_chunks = []
         for i in path.rglob("*.md"):
-            content = i.read_text(encoding="utf-8")
-        return self.chunk_document(content=content, files_path=str(files_path))
+            file_content = i.read_text(encoding="utf-8")
+            file_chunks = self.chunk_document(content=file_content, file_path=str(i))
+            all_chunks.extend(file_chunks)
+        
+        return all_chunks
