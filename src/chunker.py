@@ -13,106 +13,81 @@ class ChunkResult(MinimalSource):
 
 
 class Chunker:
-    def __init__(
-        self, separator: list[str] | None = None, max_chunk_size: int = 2000
-    ) -> None:
-        # Concerns .py files in future steps
-        self.sep = separator
-
-        # Fixed size budget for docs (.md and .txt)
-        self.fixed_size = max_chunk_size
-
+    def __init__(self, max_chunk_size: int = 2000) -> None:
+        self.max_chunk_size = max_chunk_size
         self.all_chunks: list[ChunkResult] = []
 
-    def _split_text(
-            self, text: str, offset: int, separators: list[str], file_path: str
-        ) -> None:
-            """Recursively splits and groups text by priority separators while tracking exact character offsets."""
-            if len(text) <= self.fixed_size:
-                self.all_chunks.append(
-                    ChunkResult(
-                        file_path=file_path,
-                        first_character_index=offset,
-                        last_character_index=offset + len(text),
-                        content=text,
-                    )
-                )
-                return
-    
-            for idx, sep in enumerate(separators):
-                if sep not in text:
-                    continue
-    
-                parts = text.split(sep)
-                next_seps = separators[idx + 1 :]
-                buffer, buf_start, curr_offset = "", offset, offset
-    
-                for i, part in enumerate(parts):
-                    piece = part if i == 0 else sep + part
-    
-                    if len(buffer) + len(piece) <= self.fixed_size:
-                        buffer += piece
-                    else:
-                        if buffer:
-                            self._split_text(buffer, buf_start, next_seps, file_path)
-                        buffer, buf_start = piece, curr_offset
-    
-                    curr_offset += len(piece)
-    
-                if buffer:
-                    self._split_text(buffer, buf_start, next_seps, file_path)
-                return
-    
-            for i in range(0, len(text), self.fixed_size):
-                chunk = text[i : i + self.fixed_size]
-                self.all_chunks.append(
-                    ChunkResult(
-                        file_path=file_path,
-                        first_character_index=offset + i,
-                        last_character_index=offset + i + len(chunk),
-                        content=chunk,
-                    )
-                )
-    
-    def chunk_code_files(self, content: str, file_path: str) -> None:
-        if content:
-            self._split_text(content, 0, self.sep, file_path)
-            
-
-    def chunk_doc_files(self, content: str, file_path: str) -> None:
-        if not content:
+    def _add_chunk(
+        self, file_path: str, start: int, end: int, content: str
+    ) -> None:
+        if not content.strip():
             return
 
-        total_length = len(content)
-        for start_idx in range(0, total_length, self.fixed_size):
-            end_idx = min(start_idx + self.fixed_size, total_length)
-            chunk_text = content[start_idx:end_idx]
+        # Enforce hard context cap
+        if len(content) > self.max_chunk_size:
+            content = content[: self.max_chunk_size]
+            end = start + len(content)
 
-            chunk = ChunkResult(
+        self.all_chunks.append(
+            ChunkResult(
                 file_path=file_path,
-                first_character_index=start_idx,
-                last_character_index=end_idx,
-                content=chunk_text,
+                first_character_index=start,
+                last_character_index=end,
+                content=content,
             )
-            self.all_chunks.append(chunk)
+        )
+
+    def _sliding_window(
+        self, text: str, offset: int, file_path: str, chunk_size: int = 1800, overlap: int = 500
+    ) -> None:
+        step = max(1, chunk_size - overlap)
+        total = len(text)
+        for i in range(0, total, step):
+            start = i
+            end = min(i + chunk_size, total)
+            self._add_chunk(file_path, offset + start, offset + end, text[start:end])
+            if end >= total:
+                break
+
+    def chunk_code_files(self, content: str, file_path: str) -> None:
+        if not content.strip():
+            return
+
+        if len(content) <= self.max_chunk_size:
+            self._add_chunk(file_path, 0, len(content), content)
+        else:
+            self._sliding_window(content, 0, file_path, chunk_size=1800, overlap=500)
+
+    def chunk_doc_files(self, content: str, file_path: str) -> None:
+        if not content.strip():
+            return
+
+        if len(content) <= self.max_chunk_size:
+            self._add_chunk(file_path, 0, len(content), content)
+        else:
+            # Optimized for private docs: larger 1800 size with 500 overlap
+            self._sliding_window(content, 0, file_path, chunk_size=1800, overlap=500)
 
     def process_document(self, target_dir: str) -> None:
         target_path = Path(target_dir)
-
         if not target_path.exists():
             print(f"Warning: Target path {target_dir} does not exist.")
             return
 
         for file_path in sorted(target_path.rglob("*")):
-            if file_path.is_file() and file_path.suffix.lower() in [".md", ".txt"]:
-                try:
-                    content = file_path.read_text(encoding="utf-8", errors="ignore")
-                    self.chunk_doc_files(content, str(file_path))
-                except Exception as e:
-                    print(f"Error reading file {file_path}: {e}")
-            elif file_path.is_file() and file_path.suffix.lower() == ".py":
-                try:
-                    content = file_path.read_text(encoding="utf-8", errors="ignore")
-                    self.chunk_code_files(content, str(file_path))
-                except Exception as e:
-                    print(f"Error reading file {file_path}: {e}")
+            if not file_path.is_file():
+                continue
+
+            suffix = file_path.suffix.lower()
+            try:
+                content = file_path.read_text(encoding="utf-8", errors="ignore")
+            except Exception as e:
+                print(f"Error reading {file_path}: {e}")
+                continue
+
+            rel_path = str(file_path)
+
+            if suffix in {".md", ".txt"}:
+                self.chunk_doc_files(content, rel_path)
+            elif suffix == ".py":
+                self.chunk_code_files(content, rel_path)
