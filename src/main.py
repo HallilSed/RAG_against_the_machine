@@ -10,9 +10,8 @@ if __name__ == "__main__":
     output_path.mkdir(parents=True, exist_ok=True)
 
     code_separator = ["\nclass ", "\ndef ", "\n\n", "\n", " "]
-    docs_fixed_size = 2000
 
-    chunker = Chunker(separator=code_separator, max_chunk_size=docs_fixed_size)
+    chunker = Chunker()
 
     chunker.process_document(file_target)
 

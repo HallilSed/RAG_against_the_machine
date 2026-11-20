@@ -18,7 +18,7 @@ class MinimalSource(BaseModel):
 def load_chunks(chunks_file: Path = CHUNKS_FILE) -> list[dict]:
     if not chunks_file.exists():
         raise FileNotFoundError(
-            f"Missing {chunks_file}; run python3 -m src.rag.main first."
+            f"Missing {chunks_file}; run python3 -m src.main first."
         )
     chunks = json.loads(chunks_file.read_text(encoding="utf-8"))
     if not chunks:
