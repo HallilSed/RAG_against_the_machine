@@ -18,7 +18,7 @@ class Index:
     def __init__(self):
         pass
     
-    def load_chunks(self, chunks_file: Path = CHUNKS_FILE) -> list[dict]:
+    def load_and_filter_chunks(self, chunks_file: Path = CHUNKS_FILE) -> list[dict]:
         
         if not chunks_file.exists():
             raise FileNotFoundError(f"Missing {chunks_file}")
@@ -28,4 +28,15 @@ class Index:
         if not chunks:
             raise ValueError(f"{chunks_file} file is empty")
         
-        return chunks
+    
+    def build_tokenizer(self, text: str) -> list[str]:
+        
+        expanded = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", text)
+        exp_prev = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1 \2", expanded)
+        
+        parts = re.findall(r"[a-zA-Z0-9]+", exp_prev.lower())
+        snake = re.findall(r"[a-zA-Z0-9]+(?:_[a-zA-Z0-9]+)+", text.lower())
+        
+        return parts + snake
+    
+    
