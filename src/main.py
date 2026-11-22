@@ -3,7 +3,7 @@ from pathlib import Path
 import json
 
 if __name__ == "__main__":
-    file_target = "data/raw/vllm-0.10.1"
+    file_target = "src/"
     output_dir = "data/processed/"
 
     output_path = Path(output_dir)
