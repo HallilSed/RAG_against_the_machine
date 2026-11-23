@@ -3,13 +3,11 @@ from pathlib import Path
 import json
 
 if __name__ == "__main__":
-    file_target = "src/"
+    file_target = "data/raw/vllm-0.10.1"
     output_dir = "data/processed/"
 
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
-
-    code_separator = ["\nclass ", "\ndef ", "\n\n", "\n", " "]
 
     chunker = Chunker()
 
