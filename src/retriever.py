@@ -22,7 +22,6 @@ class Retriever:
         if not hasattr(self.index, "code_postings"):
             self.index.filter_docs(chunks_file)
 
-
     def _get_corpus_state(self, corpus_type: CorpusType):
         if corpus_type == "code":
             return (
@@ -40,8 +39,12 @@ class Retriever:
             )
         raise ValueError(f"Unsupported corpus_type: {corpus_type}")
 
-    def retrieve(self, query: str, corpus_type: CorpusType = "code", k: int = 10) -> list[dict]:
-
+    def retrieve(
+        self,
+        query: str,
+        corpus_type: CorpusType = "code",
+        k: int = 10,
+    ) -> list[dict]:
         if not query or not query.strip() or k <= 0:
             return []
 
@@ -83,63 +86,94 @@ class Retriever:
     def _infer_corpus_type(dataset_path: Path, explicit: CorpusType | None = None) -> CorpusType:
         if explicit is not None:
             return explicit
-        name = dataset_path.name.lower()
-        if "doc" in name:
+        if "doc" in dataset_path.name.lower():
             return "docs"
         return "code"
 
     @staticmethod
-    def _extract_query(item: str | dict[str, Any]) -> str:
+    def _load_questions(path: Path) -> list[Any]:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(data, list):
+            return data
+        if isinstance(data, dict):
+            return data.get("rag_questions", data.get("questions", []))
+        return []
+
+    @staticmethod
+    def _parse_question_item(item: Any, fallback_idx: int) -> tuple[str, str] | None:
         if isinstance(item, str):
-            if item.strip():
-                return item
-            raise ValueError("Dataset contains an empty query string")
+            question = item.strip()
+            if not question:
+                return None
+            return f"q_{fallback_idx}", question
+
         if isinstance(item, dict):
-            for key in ("question", "query", "prompt", "instruction"):
-                val = item.get(key)
-                if isinstance(val, str) and val.strip():
-                    return val
-        raise KeyError(f"Could not find query text in dataset item: {item!r}")
+            question = str(item.get("question", item.get("text", item.get("query", "")))).strip()
+            if not question:
+                return None
+            qid = str(item.get("question_id", item.get("id", f"q_{fallback_idx}")))
+            return qid, question
+
+        return None
 
     def search_dataset(
         self,
-        dataset_path: Path,
+        dataset_path: str | Path,
         k: int = 10,
-        save_directory: Path | None = None,
+        save_directory: str | Path = "data/processed",
         corpus_type: CorpusType | None = None,
-    ) -> list[dict[str, Any]]:
-        if not dataset_path.exists():
-            raise FileNotFoundError(f"Missing dataset: {dataset_path}")
+    ) -> dict[str, Any]:
+        ds_path = Path(dataset_path)
+        if not ds_path.exists():
+            raise FileNotFoundError(f"Dataset path {dataset_path} does not exist.")
 
-        resolved_corpus = self._infer_corpus_type(dataset_path, corpus_type)
-        items = json.loads(dataset_path.read_text(encoding="utf-8"))
+        if ds_path.is_dir():
+            last_payload: dict[str, Any] = {"search_results": [], "k": k}
+            for jf in sorted(ds_path.glob("*.json")):
+                last_payload = self.search_dataset(
+                    dataset_path=jf,
+                    k=k,
+                    save_directory=save_directory,
+                    corpus_type=corpus_type,
+                )
+            return last_payload
 
-        outputs: list[dict[str, Any]] = []
-        for item in items:
-            query = self._extract_query(item)
-            hits = self.retrieve(query=query, corpus_type=resolved_corpus, k=k)
-            if isinstance(item, dict):
-                record = dict(item)
-                record["retrieved_sources"] = hits
-            else:
-                record = {
-                    "query": query,
-                    "retrieved_sources": hits,
+        resolved_corpus = self._infer_corpus_type(ds_path, corpus_type)
+        items = self._load_questions(ds_path)
+
+        search_results: list[dict[str, Any]] = []
+        for idx, item in enumerate(items, start=1):
+            parsed = self._parse_question_item(item, idx)
+            if parsed is None:
+                continue
+            qid, question = parsed
+            sources = self.retrieve(query=question, corpus_type=resolved_corpus, k=k)
+            search_results.append(
+                {
+                    "question_id": qid,
+                    "question": question,
+                    "retrieved_sources": sources,
                 }
-            outputs.append(record)
+            )
 
-        if save_directory is not None:
-            out_path = Path(save_directory)
-            if out_path.suffix.lower() == ".json":
-                out_path.parent.mkdir(parents=True, exist_ok=True)
-                target_file = out_path
-            else:
-                out_path.mkdir(parents=True, exist_ok=True)
-                target_file = out_path / f"{dataset_path.stem}_results.json"
+        payload: dict[str, Any] = {
+            "search_results": search_results,
+            "k": k,
+        }
 
-            target_file.write_text(json.dumps(outputs, indent=2), encoding="utf-8")
-
-        return outputs
+        out_target = Path(save_directory)
+        out_file = (
+            out_target
+            if out_target.suffix.lower() == ".json"
+            else out_target / f"search_treesitter_{ds_path.name}"
+        )
+        out_file.parent.mkdir(parents=True, exist_ok=True)
+        out_file.write_text(
+            json.dumps(payload, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        print(f"Saved student_search_results to {out_file}")
+        return payload
 
 
 def main() -> None:
@@ -149,7 +183,7 @@ def main() -> None:
     search_cmd = subparsers.add_parser("search_dataset", help="Run retrieval over a dataset JSON")
     search_cmd.add_argument("--dataset_path", type=Path, required=True)
     search_cmd.add_argument("--k", type=int, default=10)
-    search_cmd.add_argument("--save_directory", type=Path, required=True)
+    search_cmd.add_argument("--save_directory", type=Path, default=Path("data/processed"))
     search_cmd.add_argument("--chunks_file", type=Path, default=CHUNKS_FILE)
     search_cmd.add_argument("--corpus_type", choices=["code", "docs"], default=None)
 

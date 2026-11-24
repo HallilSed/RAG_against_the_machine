@@ -5,21 +5,22 @@ from pathlib import Path
 import re
 from pydantic import BaseModel
 import Stemmer
+# import unicodedata
 
 CHUNKS_FILE = Path("data/processed/chunks.json")
 
 
-STOPWORDS: set[str] = {
-    "i", "me", "my", "myself", "we", "our", "ours", "ourselves", "you", "your", "yours", "yourself", "yourselves",
-    "he", "him", "his", "himself", "she", "her", "hers", "herself", "it", "its", "itself", "they", "them", "their",
-    "theirs", "themselves", "what", "which", "who", "whom", "this", "that", "these", "those", "am", "is", "are",
-    "was", "were", "be", "been", "being", "have", "has", "had", "having", "do", "does", "did", "doing", "a", "an",
-    "the", "and", "but", "if", "or", "because", "as", "until", "while", "of", "at", "by", "for", "with", "about",
-    "against", "between", "into", "through", "during", "before", "after", "above", "below", "to", "from", "up", "down",
-    "in", "out", "on", "off", "over", "under", "again", "further", "then", "once", "here", "there", "when", "where",
-    "why", "how", "all", "any", "both", "each", "few", "more", "most", "other", "some", "such", "no", "nor", "not",
-    "only", "own", "same", "so", "than", "too", "very", "s", "t", "can", "will", "just", "don", "should", "now"
-}
+# STOPWORDS: set[str] = {
+#     "i", "me", "my", "myself", "we", "our", "ours", "ourselves", "you", "your", "yours", "yourself", "yourselves",
+#     "he", "him", "his", "himself", "she", "her", "hers", "herself", "it", "its", "itself", "they", "them", "their",
+#     "theirs", "themselves", "what", "which", "who", "whom", "this", "that", "these", "those", "am", "is", "are",
+#     "was", "were", "be", "been", "being", "have", "has", "had", "having", "do", "does", "did", "doing", "a", "an",
+#     "the", "and", "but", "if", "or", "because", "as", "until", "while", "of", "at", "by", "for", "with", "about",
+#     "against", "between", "into", "through", "during", "before", "after", "above", "below", "to", "from", "up", "down",
+#     "in", "out", "on", "off", "over", "under", "again", "further", "then", "once", "here", "there", "when", "where",
+#     "why", "how", "all", "any", "both", "each", "few", "more", "most", "other", "some", "such", "no", "nor", "not",
+#     "only", "own", "same", "so", "than", "too", "very", "s", "t", "can", "will", "just", "don", "should", "now"
+# }
 
 
 class Index:
@@ -48,11 +49,31 @@ class Index:
 
         return parts + snake
 
-    def docs_tokenizer(self, text: str) -> list[str]:
-        words = re.findall(r"[a-z0-9]+", text.lower())
-        filtered = [word for word in words if word not in STOPWORDS]
 
-        return self._stemmer.stemWords(filtered)
+    def docs_tokenizer(self, text: str) -> list[str]:
+        # text = unicodedata.normalize("NFKC", text)
+
+        text = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", text)
+        text = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1 \2", text)
+
+        text = text.lower()
+
+        tokens = re.findall(
+            r"[a-z]+(?:'[a-z]+)?|[0-9]+(?:\.[0-9]+)*",
+            text
+        )
+
+        # tokens = re.findall(r"[a-z]+|\d+(?:\.\d+)*", text)
+
+        # filtered = [
+        #     token
+        #     for token in tokens
+        #     if token not in STOPWORDS
+        #     and len(token) > 1
+        # ]
+
+        return tokens
+
 
     @staticmethod
     def build_corpus_stats(tokenized_docs: list[list[str]]) -> tuple[list[int], float, dict[str, int]]:
@@ -89,14 +110,8 @@ class Index:
 
         return idf_scores
 
-    def bm25_index(
-        self,
-        tokenized_docs: list[list[str]],
-        doc_lengths: list[int],
-        avgdl: float,
-        token_to_id: dict[str, int],
-        idf_scores: list[float],
-        k1: float = 1.5,
+    def bm25_index(self, tokenized_docs: list[list[str]], doc_lengths: list[int], avgdl: float,
+        token_to_id: dict[str, int], idf_scores: list[float], k1: float = 1.5,
         b: float = 0.75,
     ) -> dict[int, list[tuple[int, float]]]:
         if not tokenized_docs or avgdl <= 0 or not token_to_id:
